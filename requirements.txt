@@ -1,6 +1,7 @@
 jinja2
 gitpython
 conda-build-all
+conda-gitenv
 pyyaml
 setuptools
 mock

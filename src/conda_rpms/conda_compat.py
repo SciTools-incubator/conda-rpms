@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Iterable, List, Optional
+import yaml
 
 from conda.api import PackageCacheData
 from conda_package_handling.api import create as create_conda_tarball
 
 from .logger import log
-
 
 class SpecTarget:
     _ident = "__none__"
@@ -47,8 +47,10 @@ class CondaPackage(SpecTarget):
 @dataclass
 class CondaEnvironment(SpecTarget):
     _ident = "env"
-    _id_string = "{name}-{version}"
+    _id_string = "{name}-{label}-{version}"
     name: str
+    label: str
+    tag: str
     version: str
     summary: Optional[str]
 
@@ -76,10 +78,20 @@ def read_conda_lockfile(lockfile: Iterable[str]) -> List[str]:
     return urls
 
 
-def make_package_tarball(pkg: CondaPackage) -> Path:
-    """Return the path to a package's associated tar.bz2 tarball.
+def read_conda_environment_yml(env_yml: Iterable[str]) -> CondaEnvironment:
+    """Returns a CondaEnvironemnt instance using metadata from the 
+    environment.yml file.
 
-    If the conda pacakge is in the .conda format, this function
+    """
+    env = yaml.safe_load(env_yml)
+    return CondaEnvironment(*env['name'].split('-'), env['meta']['released'],
+                            env['meta']['version'], None)
+
+
+def make_package_tarball(pkg: CondaPackage) -> Path:
+    """Returns the path to a package's associated tar.bz2 tarball.
+
+    If the conda package is in the .conda format, this function
     will also convert to the .tar.bz2 format and place it alongside
     the .conda package.
 

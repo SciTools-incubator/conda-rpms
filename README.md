@@ -20,7 +20,7 @@ Assuming you have a [conda-lock](https://github.com/conda-incubator/conda-lock)
 named `~/data_science.lock`:
 ```
 # create the specs and copy source files to ./dist/SPECS and ./dist/SOURCES
-python -m conda_rpms.generate --name data_science --output dist ~/data_science.lock
+python -m conda_rpms.generate ~/data_science.lock data_science.yml --output dist --modulefile_template modulefile.tmpl 
 # build the RPMs to ./dist/RPMS
 rpmbuild -bb --define "_topdir $(pwd)/dist"  dist/SPECS/*.spec
 ```
@@ -41,7 +41,7 @@ Environment RPM
 
 RPM name format: ``<RPM namespace>-env-<env name>``
 
-A environment RPM represents a resolved conda environment.
+An environment RPM represents a resolved conda environment.
 It depends on all Package RPMs that should be installed in order to produce a working environment. The environment RPM knows its target installation prefix, and uses conda functionality at install time to link the Package RPMs to the desired installation prefix.
 
 

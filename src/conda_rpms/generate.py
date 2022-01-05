@@ -9,7 +9,7 @@ import os
 import shutil
 from pathlib import Path
 import sys
-from typing import Iterable, List, NamedTuple, Optional, Union
+from typing import List
 
 import jinja2
 import yaml
@@ -20,6 +20,7 @@ from .conda_compat import (
     CondaEnvironment,
     make_package_tarball,
     read_conda_lockfile,
+    read_conda_environment_yml
 )
 
 # configure the installer to use the same version
@@ -33,6 +34,11 @@ class PackageSpec:
     spec: Path  # the path to a written RPM spec file
     tarball: Path  # the path the associated tar.bz2 tarball of files
 
+@dataclass
+class ModulefileConfig:
+    prefix: Path = None # the path of where the modulefile will be written to
+    modulefile: str = None # the contents of the modulefile that will be created
+    default: str = None # the contents of the .version default file
 
 _module_dir = Path(__file__).resolve().parent
 install_script_path = _module_dir / "dist/install.py"
@@ -46,10 +52,10 @@ installer_spec_tmpl = env.get_template("installer.spec.template")
 
 
 def render_package_spec(pkg_dir: Path, rpm_namespace: str, install_prefix: Path) -> str:
-    """Render an package RPM spec.
+    """Render a package RPM spec.
 
     This relies on the conda package cache having already
-    downloaded and extracted the specific pacakge and
+    downloaded and extracted the specific package and
     stored it in the local cache.
 
     Returns the rendered RPM spec as a string.
@@ -66,10 +72,6 @@ def render_package_spec(pkg_dir: Path, rpm_namespace: str, install_prefix: Path)
             meta = yaml.safe_load(fh)
     else:
         meta = {}
-
-    meta_about = meta.setdefault("about", {})
-    meta_about.setdefault("license", pkginfo.get("license"))
-    meta_about.setdefault("summary", "The {} package".format(pkginfo["name"]))
 
     return pkg_spec_tmpl.render(
         pkginfo=pkginfo,
@@ -106,12 +108,14 @@ def render_environment_spec(
     packages: List[CondaPackage],
     install_prefix: Path,
     rpm_namespace: str,
+    modulefile_config: ModulefileConfig,
 ) -> str:
     return env_spec_tmpl.render(
         env=asdict(environment),
         pkgs=[p.id for p in packages],
         install_prefix=str(install_prefix),
         rpm_prefix=rpm_namespace,
+        module=modulefile_config
     )
 
 
@@ -132,6 +136,7 @@ def write_environment_rpm_spec(
     outdir: Path,
     install_prefix: Path,
     rpm_namespace: str,
+    modulefile_config: ModulefileConfig
 ) -> Path:
     """Write an environment RPM spec to disk.
 
@@ -142,7 +147,8 @@ def write_environment_rpm_spec(
 
     Writes an rpm .spec file to `outdir/SPECS`.
     """
-    spec = render_environment_spec(environment, packages, install_prefix, rpm_namespace)
+    spec = render_environment_spec(environment, packages, install_prefix,
+                                   rpm_namespace, modulefile_config)
     spec_filename = f"{rpm_namespace}-env-{environment.id}.spec"
     return write_spec(spec, outdir / "SPECS" / spec_filename)
 
@@ -173,12 +179,42 @@ def create_installer(
     return PackageSpec(pkg, spec, tarball)
 
 
+def create_rpm_spec(pkg, outdir, install_prefix, rpm_namespace):
+    spec = write_package_rpm_spec(pkg, outdir, install_prefix, rpm_namespace)
+    tarball = make_package_tarball(pkg)
+    return PackageSpec(pkg.id, spec, tarball)
+
+
+def get_modulefile_config(
+        template, prefix, default_version_file, env, install_prefix
+) -> ModulefileConfig:
+    modulefile_config = ModulefileConfig(prefix=prefix)
+
+    # Render the modulefile template 
+    if template:
+        template = Path(template)
+        module_loader = jinja2.FileSystemLoader(template.parent)
+        module_env = jinja2.Environment(loader=module_loader)
+        module_template = module_env.get_template(template.name)
+        modulefile_config.modulefile = module_template.render(env=env, install_prefix=install_prefix)
+
+        # Load the modulefile default version file
+        if default_version_file:
+            with open(default_version_file) as fh:
+                modulefile_config.default = fh.read()
+
+    return modulefile_config
+
+
 def environment_to_rpms(
-    name: str,
+    environment_yml: Path,
     lockfile: Path,
     outdir: Path,
     install_prefix: Path = Path("/opt/conda-dist"),
     rpm_namespace: str = "CondaDist",
+    modulefile_template: Path = None,
+    modulefile_prefix: Path = None,
+    modulefile_default: Path = None
 ):
     """Take an explicit conda lock file and turn it into a set of RPMs."""
     config = outdir, install_prefix, rpm_namespace
@@ -188,13 +224,14 @@ def environment_to_rpms(
 
     sourcedir = outdir / "SOURCES"
     specdir = outdir / "SPECS"
-    for dir in (outdir, sourcedir, specdir):
-        dir.mkdir(exist_ok=True)
+    for directory in (outdir, sourcedir, specdir):
+        directory.mkdir(exist_ok=True)
 
     log.info(f"Generating RPM environment from {lockfile}.")
     log.info(f"{len(urls)} packages to be rendered.")
 
-    log.info(f"Checking conda cache for pacakges.")
+    # Note that this requires all packages to be available in the cache.
+    log.info(f"Checking conda cache for packages.")
     pkgs = [CondaPackage.from_url(url) for url in urls]
 
     log.info("Rendering all package specs.")
@@ -209,14 +246,20 @@ def environment_to_rpms(
         log.info("Coping %s to %s", spec.tarball, sourcedir / spec.tarball.name)
         shutil.copy(spec.tarball, sourcedir / spec.tarball.name)
 
-    environment = CondaEnvironment(args.name, "1.0", None)
-    write_environment_rpm_spec(environment, pkgs, outdir, install_prefix, rpm_namespace)
-
-
-def create_rpm_spec(pkg, outdir, install_prefix, rpm_namespace):
-    spec = write_package_rpm_spec(pkg, outdir, install_prefix, rpm_namespace)
-    tarball = make_package_tarball(pkg)
-    return PackageSpec(pkg.id, spec, tarball)
+    log.info("Rendering env spec.")
+    with open(environment_yml, "r") as f:
+        environment = read_conda_environment_yml(f)
+    modulefile_config  = get_modulefile_config(modulefile_template,
+                                               modulefile_prefix,
+                                               modulefile_default,
+                                               environment,
+                                               install_prefix)
+    write_environment_rpm_spec(environment,
+                               pkgs,
+                               outdir,
+                               install_prefix,
+                               rpm_namespace,
+                               modulefile_config)
 
 
 if __name__ == "__main__":
@@ -225,10 +268,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "file", help="The conda lockfile to produce an RPM package for."
+        "environment_yml", help="The conda environment.yml to produce an RPM package for."
     )
     parser.add_argument(
-        "--name", "-n", required=True, help="The name of the environment to be created."
+        "lockfile", help="The conda lockfile to produce an RPM package for."
     )
     parser.add_argument(
         "--output",
@@ -255,12 +298,33 @@ if __name__ == "__main__":
             Shared packages will go to {install-prefix}/pkgs/{package}"""
         ),
     )
+    parser.add_argument(
+        "--modulefile_template",
+        default=None,
+        help="The template for the modulefile that will be created."
+    )
+    parser.add_argument(
+        "--modulefile_prefix",
+        default="/opt/conda-dist/modulefiles",
+        help="The destination prefix where modulefiles will be installed."
+    )
+    parser.add_argument(
+        "--modulefile_default",
+        default=None,
+        help=dedent(
+            r"""The .version file that sets the environment being created as
+            the default environment."""
+        ),
+    )
     args = parser.parse_args()
 
     environment_to_rpms(
-        args.name,
-        Path(args.file),
+        Path(args.environment_yml),
+        Path(args.lockfile),
         Path(args.output),
         Path(args.install_prefix),
         args.rpm_namespace,
+        args.modulefile_template,
+        args.modulefile_prefix,
+        args.modulefile_default,
     )

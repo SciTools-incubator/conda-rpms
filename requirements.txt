@@ -1,0 +1,6 @@
+jinja2
+gitpython
+conda-build-all
+pyyaml
+setuptools
+mock

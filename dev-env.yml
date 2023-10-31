@@ -1,0 +1,8 @@
+name: conda-rpms-dev
+dependencies:
+  - jinja2
+  - conda
+  - pytest
+  - mock
+  - pytest-cov
+  - click

@@ -3,7 +3,7 @@
 Name:           {{ rpm_prefix }}-pkg-{{ pkg_id }}
 Version:        1
 Release:        0
-Summary:        {{ meta.about.summary }}
+Summary:        {{ meta.about.summary | replace("\n", " ") }}
 
 License:        {{ pkginfo.license or 'unknown' }}
 {% if meta.about.url %}
@@ -27,7 +27,7 @@ AutoReqProv: no
 
 This is a conda distribution for {{ pkg_id }}, which can be linked by other
 RPMs but not used directly.
- 
+
 {{ meta.about.summary }}
 
 

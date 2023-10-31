@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools", "wheel", "setuptools_scm[toml]>=6.0"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-datafiles",
+  "mock",
+  "pytest-cov[all]"
+]
+
+[tool.setuptools_scm]
+write_to = "src/conda_rpms/_version.py"

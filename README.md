@@ -1,3 +1,5 @@
+# ⚠️ This repository has been archived
+
 Create RPMs from a conda-gitenv
 ===============================
 

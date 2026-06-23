@@ -829,8 +829,14 @@ def link(pkgs_dir, prefix, dist, linktype=LINK_HARD, index=None, target_prefix=N
 
         for f in sorted(has_prefix_files):
             placeholder, mode = has_prefix_files[f]
+            if noarch == 'python':
+                noarch_f = get_python_noarch_target_path(f,
+                                                         target_site_packages)
+                f_path = join(prefix, noarch_f)
+            else:
+                f_path = join(prefix, f)
             try:
-                update_prefix(join(prefix, f), target_prefix, placeholder, mode)
+                update_prefix(f_path, target_prefix, placeholder, mode)
             except PaddingError:
                 sys.exit("ERROR: placeholder '%s' too short in: %s\n" %
                          (placeholder, dist))
